@@ -39,14 +39,15 @@ class Scene():
         if cls._instance is None:
             print('Creating Scene Singleton Object')
             cls._instance = super(Scene, cls).__new__(cls)
+            cls._renderWindow = None
+            cls._gContext = None
+            cls._world = ECSSManager() #which also instantiates an EventManager
             # add further init here
         return cls._instance
     
     
     def __init__(self):
-        self._renderWindow = None
-        self._gContext = None
-        self._world = ECSSManager() #which also instantiates an EventManager
+        None;
     
     @property
     def renderWindow(self):
@@ -77,7 +78,9 @@ class Scene():
             gGUI = customImGUIdecorator(self._renderWindow)
             self._gContext = gGUI
     
+        print("mark 1");
         self._gContext.init()
+        print("mark 2");
         self._gContext.init_post()
     
     

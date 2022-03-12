@@ -218,14 +218,21 @@ class ECSSManager():
                 entity_parent.add(entity_child)
             # add entity_child in the _entities_components dictionary
             # loop through all dictionary elements of _entities_components
-            for key, value in self._entities_components.items():
-                if key is entity_parent:  # find key [entity]
-                    if (value[0] == None):
-                        # replace None with the entity_child
-                        value[0] = entity_child
-                    else:
-                        # just add entity_child in the children's components list
-                        value.append(entity_child)
+            
+            # Zack code:
+            if entity_parent not in self._entities_components:
+                self._entities_components[entity_parent] = [];
+            self._entities_components[entity_parent].append(entity_child);
+
+            # # Original code: Slow for no reason I think?!
+            # for key, value in self._entities_components.items():
+            #     if key is entity_parent:  # find key [entity]
+            #         if (value[0] == None):
+            #             # replace None with the entity_child
+            #             value[0] = entity_child
+            #         else:
+            #             # just add entity_child in the children's components list
+            #             value.append(entity_child)
 
     
     def traverse_visit_pre_camera(self, camUpdate: pyglGA.ECSS.System, camera: pyglGA.ECSS.Component.Camera):

@@ -229,22 +229,22 @@ class TransformSystem(System):
         # get parent Entity this BasicTransform Component belongs to
         componentEntity = leafComp.parent
         topAccessedEntity = componentEntity
-        parentTRS = util.identity()
-        l2worldTRS = leafComp.l2world
-        # while (p1._parent is not None)
+
+        # l2worldTRS = leafComp.l2world # wrong line
+        l2worldTRS = util.identity(); # # correct one   
+        
         while(componentEntity is not topComp):
             # get that parent's TRS by type
             parentBasicTrans = componentEntity.getChildByType("BasicTransform")
-            if(parentBasicTrans is not None):
-                parentTRS = parentBasicTrans.trs
-                # l2world = multiply current with parent's TRS 
-                l2worldTRS = l2worldTRS @ parentBasicTrans.trs
+            if(parentBasicTrans is not None and parentBasicTrans):
+                # l2worldTRS = l2worldTRS @ parentBasicTrans.trs # This doesnt work for me (mostly on rot/scale);
+                l2worldTRS = parentBasicTrans.trs @ l2worldTRS # This works for me ;
+
             topAccessedEntity = componentEntity
             componentEntity = componentEntity.parent
         else: #parent is now the root node, so check if it has a Transform component
             parentBasicTrans = topAccessedEntity.getChildByType("BasicTransform")
             if(parentBasicTrans is not None):
-                parentTRS = parentBasicTrans.trs
                 # l2world = multiply current with parent's TRS 
                 l2worldTRS = l2worldTRS @ parentBasicTrans.trs
                 
@@ -320,7 +320,7 @@ class CameraSystem(System):
         if(parentBasicTrans is not None):
             parentl2world = parentBasicTrans.l2world
             inv_parentl2world = util.inverse(parentl2world)
-            r2c = inv_parentl2world @ camComp.projMat
+            r2c = inv_parentl2world;
         
         return r2c
         
@@ -338,11 +338,12 @@ class CameraSystem(System):
         print(self.getClassName(), ": apply(BasicTransform) called from CameraSystem - Calc: Local2Cam")
         
         #l2world of basicTransform has been calculated by the TransformSystem before this System
-        l2w = basicTransform.l2world
-        r2c = self._camera.root2cam
-        proj = self._camera.projMat
-        l2c = l2w @ r2c
-        basicTransform.update(l2cam=l2c) 
+        l2w = basicTransform.l2world;
+        r2c = self._camera.root2cam;
+        proj = self._camera.projMat;
+
+        l2c = proj @ r2c @ l2w; # Not sure 100% sure why it didnt play for me before
+        basicTransform.update(l2cam=l2c) ;
         
     #first this     
     def apply2Camera(self, cam: pyglGA.ECSS.Component.Camera):

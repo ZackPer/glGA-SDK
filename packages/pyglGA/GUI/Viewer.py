@@ -153,26 +153,17 @@ class SDL2Window(RenderWindow):
     @property
     def gWindow(self):
         return self._gWindow
-    
-    
+
     @property
     def gContext(self):
         return self._gContext
-    
-    
+        
     def init(self):
         """
         Initialise an SDL2 RenderWindow, not directly but via the SDL2Decorator
         """
         print(f'{self.getClassName()}: init()')
-        
-        #SDL_Init for the window initialization
-        sdl_not_initialised = sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO | sdl2.SDL_INIT_TIMER)
-        if sdl_not_initialised !=0:
-            print("SDL2 could not be initialised! SDL Error: ", sdl2.SDL_GetError())
-            exit(1)
-        
-        #setting OpenGL attributes for the GL state and context 4.1
+                #setting OpenGL attributes for the GL state and context 4.1
         sdl2.SDL_GL_SetAttribute(sdl2.SDL_GL_CONTEXT_FLAGS,
                                  sdl2.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG
                                  )
@@ -190,17 +181,24 @@ class SDL2Window(RenderWindow):
         sdl2.SDL_SetHint(sdl2.SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK, b"1")
         sdl2.SDL_SetHint(sdl2.SDL_HINT_VIDEO_HIGHDPI_DISABLED, b"1")
         
+        #SDL_Init for the window initialization
+        sdl_not_initialised = sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO | sdl2.SDL_INIT_TIMER)
+        if sdl_not_initialised != 0:
+            print("SDL2 could not be initialised! SDL Error: ", sdl2.SDL_GetError())
+            exit(1)
+
         #creating the SDL2 window
         self._gWindow = sdl2.SDL_CreateWindow(self._windowTitle.encode(), 
                                               sdl2.SDL_WINDOWPOS_CENTERED,
                                               sdl2.SDL_WINDOWPOS_CENTERED,
                                               self._windowWidth,
                                               self._windowHeight,
-                                              sdl2.SDL_WINDOW_ALLOW_HIGHDPI)
+                                              sdl2.SDL_WINDOW_OPENGL)
+                                              
         if self._gWindow is None:
             print("Window could not be created! SDL Error: ", sdl2.SDL_GetError())
             exit(1)
-            
+        print(self._gWindow);
         #create the OpenGL context for rendering into the SDL2Window that was constructed just before
         self._gContext = sdl2.SDL_GL_CreateContext(self._gWindow)
         if self._gContext is None:
@@ -214,15 +212,13 @@ class SDL2Window(RenderWindow):
         self._gVersionLabel = f'OpenGL {gl.glGetString(gl.GL_VERSION).decode()} GLSL {gl.glGetString(gl.GL_SHADING_LANGUAGE_VERSION).decode()} Renderer {gl.glGetString(gl.GL_RENDERER).decode()}'
         print(self._gVersionLabel)
     
-    
     def init_post(self):
         """
         Post init method for SDL2
         this should be ctypiically alled AFTER all other GL contexts have been created
         """
         pass
-    
-    
+        
     def display(self):
         """
         Main display window method to be called standalone or from within a concrete Decorator
@@ -239,19 +235,14 @@ class SDL2Window(RenderWindow):
             #print(f"SDL2Window:display() set wireframemode: {self._wireframeMode}")
         else:
             gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
-            #print(f"SDL2Window:display() set wireframemode: {self._wireframeMode}")
-            
-        #print(f'{self.getClassName()}: display()')
-    
-    
+        
     def display_post(self):
         """
         To be called at the end of each drawn frame to swap double buffers
         """
         sdl2.SDL_GL_SwapWindow(self._gWindow)
         #print(f'{self.getClassName()}: display_post()')       
-    
-    
+        
     def shutdown(self):
         """
         Shutdown and cleanup SDL2 operations
@@ -261,7 +252,6 @@ class SDL2Window(RenderWindow):
             sdl2.SDL_GL_DeleteContext(self._gContext)
             sdl2.SDL_DestroyWindow(self._gWindow)
             sdl2.SDL_Quit()   
-
 
     def event_input_process(self, running = True):
         """

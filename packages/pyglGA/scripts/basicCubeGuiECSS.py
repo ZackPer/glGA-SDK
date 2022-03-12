@@ -12,6 +12,8 @@ pyglGA ECSS package
 from __future__         import annotations
 import numpy as np
 import imgui
+import sys;
+sys.path.append("C:\\Users\\User\\Documents\\glGA-SDK\\packages");
 
 import pyglGA.ECSS.utilities as util
 from pyglGA.ECSS.System import System, TransformSystem, CameraSystem
@@ -23,7 +25,7 @@ from pyglGA.ECSS.ECSSManager import ECSSManager
 from pyglGA.ext.Shader import InitGLShaderSystem, Shader, ShaderGLDecorator, RenderGLShaderSystem
 from pyglGA.ext.VertexArray import VertexArray
 from pyglGA.ext.Scene import Scene
-
+ 
 
 class ImGUIecssDecorator(ImGUIDecorator):
     """custom ImGUI decorator for this example
@@ -154,43 +156,50 @@ def main(imguiFlag = False):
     
     node4 = scene.world.createEntity(Entity(name="node4"))
     scene.world.addEntityChild(rootEntity, node4)
-    trans4 = scene.world.addComponent(node4, BasicTransform(name="trans4", trs=util.identity()))
+    trans4 = scene.world.addComponent(node4, BasicTransform(name="tras4", trs=util.identity()))
     mesh4 = scene.world.addComponent(node4, RenderMesh(name="mesh4"))
+    # decorated components and systems with sample, default pass-through shader with uniform MVP
+    shaderDec4 = scene.world.addComponent(node4, ShaderGLDecorator(Shader(vertex_source = Shader.COLOR_VERT_MVP, fragment_source=Shader.COLOR_FRAG)))
     
     #Simple Cube
-    vertexCube = np.array([
-        [-0.5, -0.5, 0.5, 1.0],
-        [-0.5, 0.5, 0.5, 1.0],
-        [0.5, 0.5, 0.5, 1.0],
-        [0.5, -0.5, 0.5, 1.0], 
-        [-0.5, -0.5, -0.5, 1.0], 
-        [-0.5, 0.5, -0.5, 1.0], 
-        [0.5, 0.5, -0.5, 1.0], 
-        [0.5, -0.5, -0.5, 1.0]
-    ],dtype=np.float32) 
-    colorCube = np.array([
-        [0.0, 0.0, 0.0, 1.0],
-        [1.0, 0.0, 0.0, 1.0],
-        [1.0, 1.0, 0.0, 1.0],
-        [0.0, 1.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0, 1.0],
-        [1.0, 0.0, 1.0, 1.0],
-        [1.0, 1.0, 1.0, 1.0],
-        [0.0, 1.0, 1.0, 1.0]
-    ], dtype=np.float32)
-    
+    vertexCube = np.array(
+        [
+            [-0.5, -0.5, 0.5, 1.0],
+            [-0.5, 0.5, 0.5, 1.0],
+            [0.5, 0.5, 0.5, 1.0],
+            [0.5, -0.5, 0.5, 1.0], 
+            [-0.5, -0.5, -0.5, 1.0], 
+            [-0.5, 0.5, -0.5, 1.0], 
+            [0.5, 0.5, -0.5, 1.0], 
+            [0.5, -0.5, -0.5, 1.0]
+        ],
+        dtype=np.float32
+    ) 
+    colorCube = np.array(
+        [
+            [0.0, 0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0, 1.0]
+        ], 
+        dtype=np.float32
+    )
     #index arrays for above vertex Arrays
-    indexCube = np.array((1,0,3, 1,3,2, 
-                        2,3,7, 2,7,6,
-                        3,0,4, 3,4,7,
-                        6,5,1, 6,1,2,
-                        4,5,6, 4,6,7,
-                        5,4,0, 5,0,1), np.uint32) #rhombus out of two triangles
-    # Systems
-    transUpdate = scene.world.createSystem(TransformSystem("transUpdate", "TransformSystem", "001"))
-    camUpdate = scene.world.createSystem(CameraSystem("camUpdate", "CameraUpdate", "200"))
-    renderUpdate = scene.world.createSystem(RenderGLShaderSystem())
-    initUpdate = scene.world.createSystem(InitGLShaderSystem())
+    indexCube = np.array(
+        (
+            1,0,3, 1,3,2, 
+            2,3,7, 2,7,6,
+            3,0,4, 3,4,7,
+            6,5,1, 6,1,2,
+            4,5,6, 4,6,7,
+            5,4,0, 5,0,1
+        ),
+        np.uint32
+    ) #rhombus out of two triangles
     
     # 
     # MVP matrix calculation - 
@@ -198,18 +207,19 @@ def main(imguiFlag = False):
     # otherwise automatically picked up at ECSS VertexArray level from the Scenegraph System
     # same process as VertexArray is automatically populated from RenderMesh
     #
-    #model = util.translate(0.0,0.0,0.5)
     model = util.translate(0.0,0.0,0.0)
+    # model = util.translate(0.0,0.0,0.0)
     eye = util.vec(0.0, 0.0, -10.0)
     target = util.vec(0,0,0)
     up = util.vec(0.0, 1.0, 0.0)
-    view = util.lookat(eye, target, up)
+    view = util.identity();
+    # view = util.lookat(eye, target, up)
     #projMat = util.frustum(-10.0, 10.0,-10.0,10.0, -1.0, 10)
     #projMat = util.perspective(120.0, 1.33, 0.1, 100.0)
     #projMat = util.ortho(-100.0, 100.0, -100.0, 100.0, 1.0, 100.0)
     projMat = util.ortho(-5.0, 5.0, -5.0, 5.0, -1.0, 5.0)
     mvpMat = model @ view @ projMat
-    #mvpMat =  projMat @ view @ model
+    # mvpMat =  projMat @ view @ model
     
     #
     # setup ECSS nodes pre-systems
@@ -218,10 +228,7 @@ def main(imguiFlag = False):
     trans2.trs = view
     trans1.trs = model
     #l2cMat = node4.l2cam
-    
-    # decorated components and systems with sample, default pass-through shader with uniform MVP
-    shaderDec4 = scene.world.addComponent(node4, ShaderGLDecorator(Shader(vertex_source = Shader.COLOR_VERT_MVP, fragment_source=Shader.COLOR_FRAG)))
-    
+        
     
     # attach a simple cube in a RenderMesh so that VertexArray can pick it up
     mesh4.vertex_attributes.append(vertexCube)
@@ -229,6 +236,13 @@ def main(imguiFlag = False):
     mesh4.vertex_index.append(indexCube)
     vArray4 = scene.world.addComponent(node4, VertexArray())
     
+    # Systems
+    transUpdate = scene.world.createSystem(TransformSystem("transUpdate", "TransformSystem", "001"))
+    camUpdate = scene.world.createSystem(CameraSystem("camUpdate", "CameraUpdate", "200"))
+    renderUpdate = scene.world.createSystem(RenderGLShaderSystem())
+    initUpdate = scene.world.createSystem(InitGLShaderSystem())
+
+
     scene.world.print()
     scene.world.eventManager.print()
     
@@ -240,6 +254,7 @@ def main(imguiFlag = False):
     imGUIecss.mvpMat = mvpMat
     imGUIecss.shaderDec = shaderDec4
     
+
     # ---------------------------------------------------------
     #   Run pre render GLInit traversal for once!
     #   pre-pass scenegraph to initialise all GL context dependent geometry, shader classes
@@ -313,9 +328,9 @@ def main(imguiFlag = False):
         #shaderDec4.setUniformVariable(key='modelViewProj', value=l2cMat, mat4=True)
         # direct uniform variable shader setup
         # should be called before ImGUI and before drawing Geometry
-        shaderDec4.setUniformVariable(key='modelViewProj', value=gWindow._myCamera, mat4=True)
-        #shaderDec4.setUniformVariable(key='modelViewProj', value=l2cMat, mat4=True)
-        #shaderDec4.setUniformVariable(key='modelViewProj', value=trans4.l2cam, mat4=True)
+        # shaderDec4.setUniformVariable(key='modelViewProj', value=gWindow._myCamera, mat4=True)
+        # shaderDec4.setUniformVariable(key='modelViewProj', value=l2cMat, mat4=True)
+        shaderDec4.setUniformVariable(key='modelViewProj', value=trans4.l2cam, mat4=True)
         
         # 4. call SDLWindow/ImGUI display() and ImGUI event input process
         running = scene.render(running)
