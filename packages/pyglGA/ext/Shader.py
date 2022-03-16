@@ -42,34 +42,105 @@ class Shader(Component):
     #  basic pass-through Vertex-Fragment Shader examples
     # ---------------------------------------------------
     COLOR_VERT = """#version 410
-        layout (location=0) in vec4 position;
-        layout (location=1) in vec4 colour;
-        out vec4 theColour;
+        layout (location=0) in vec4 vPosition;
+        layout (location=1) in vec4 vColor;
+        out vec4 color;
         void main()
         {
-            gl_Position = position;
-            theColour = colour;
+            gl_Position = vPosition;
+            color = vColor;
         }
     """
-    COLOR_FRAG = """#version 410
-        in vec4 theColour;
-        out vec4 outputColour;
+    COLOR_FRAG = """
+        #version 410
+
+        in vec4 color;
+        out vec4 outputColor;
+
         void main()
         {
-            //outputColour = vec4(1, 0, 0, 1);
-            outputColour = theColour;
+            outputColor = color;
+            //outputColor = vec4(0.1, 0.1, 0.1, 1);
         }
     """
-    COLOR_VERT_MVP = """#version 410
-        layout (location=0) in vec4 position;
-        layout (location=1) in vec4 colour;
-        out     vec4 theColour;
+    COLOR_VERT_MVP = """
+        #version 410
+
+        layout (location=0) in vec4 vPosition;
+        layout (location=1) in vec4 vColor;
+
+        out     vec4 color;
         uniform mat4 modelViewProj;
         
         void main()
         {
-            gl_Position = modelViewProj * position;
-            theColour = colour;
+            gl_Position = modelViewProj * vPosition;
+            color = vColor;
+        }
+    """
+    VERT_PHONG_MVP = """
+        #version 410
+
+        layout (location=0) in vec4 vPosition;
+        layout (location=1) in vec4 vColor;
+        layout (location=2) in vec4 vNormal;
+
+        out     vec4 pos;
+        out     vec4 color;
+        out     vec3 normal;
+        
+        uniform mat4 modelViewProj;
+        uniform mat4 model;
+
+        void main()
+        {
+            gl_Position = modelViewProj * vPosition;
+            pos = model * vPosition;
+            color = vColor;
+            normal = mat3(transpose(inverse(model))) * vNormal.xyz;
+        }
+    """
+    FRAG_PHONG = """
+        #version 410
+
+        in vec4 pos;
+        in vec4 color;
+        in vec3 normal;
+        out vec4 outputColor;
+
+        // Phong products
+        uniform vec3 ambientColor;
+        uniform float ambientStr;
+
+        // Lighting 
+        uniform vec3 viewPos;
+        uniform vec3 lightPos;
+        uniform vec3 lightColor;
+        uniform float lightIntensity;
+
+        // Material
+        uniform float shininess;
+        uniform vec3 matColor;
+
+        void main()
+        {
+            vec3 norm = normalize(normal);
+            vec3 lightDir = normalize(lightPos - pos.xyz);
+            vec3 viewDir = normalize(viewPos - pos.xyz);
+            vec3 reflectDir = reflect(-lightDir, norm);
+            
+
+            // Ambient
+            vec3 ambientProduct = ambientStr * ambientColor;
+            // Diffuse
+            float diffuseStr = max(dot(norm, lightDir), 0.0);
+            vec3 diffuseProduct = diffuseStr * lightColor;
+            // Specular
+            float specularStr = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+            vec3 specularProduct = shininess * specularStr * color.xyz;
+            
+            vec3 result = (ambientProduct + (diffuseProduct + specularProduct) * lightIntensity) * matColor;
+            outputColor = vec4(result, 1);
         }
     """
     
@@ -172,15 +243,18 @@ class Shader(Component):
         if self._float1fDict is not None:
             for key, value in self._float1fDict.items():
                 loc = gl.glGetUniformLocation(self._glid, key)
-                gl.glUniform1fv(loc, 1, True, value)
+                # gl.glUniform1fv(loc, 1, True, value) Bad call
+                gl.glUniform1fv(loc, 1, value)
         if self._float3fDict is not None:
             for key, value in self._float3fDict.items():
                 loc = gl.glGetUniformLocation(self._glid, key)
-                gl.glUniform3fv(loc, 1, True, value)
+                # gl.glUniform3fv(loc, 1, True, value) Bad call
+                gl.glUniform3fv(loc, 1, value)
         if self._float4fDict is not None:
             for key, value in self._float4fDict.items():
                 loc = gl.glGetUniformLocation(self._glid, key)
-                gl.glUniform4fv(loc, 1, True, value)
+                # gl.glUniform4fv(loc, 1, True, value) Bad call
+                gl.glUniform4fv(loc, 1, value)
             
     @staticmethod
     def _compile_shader(src, shader_type):
@@ -398,7 +472,7 @@ class RenderGLShaderSystem(System):
         
         #add here custom Shader render calls
         compShader.enableShader()
-        
+    
         #call main draw from VertexArray
         vertexArray.update()
         compShader.disableShader()

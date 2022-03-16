@@ -62,6 +62,23 @@ def lerp(point_a, point_b, fraction):
     
     return point_a + fraction * (point_b - point_a)
 
+def calculateNormals(p1, p2, p3):
+    vector1 = np.array(p1);
+    vector2 = np.array(p2);
+    vector3 = np.array(p3);
+
+    U = vector2 - vector1;
+    V = vector3 - vector1;
+    
+    normal = [0, 0, 0, 1];
+    normal[0] = (U[1] * V[2]) - (U[2] * V[1])
+    normal[1] = (U[2] * V[0]) - (U[0] * V[2])
+    normal[2] = (U[0] * V[1]) - (U[1] * V[0])
+    # normal = normal/normalise(normal);
+
+    return normal;
+
+
 # ------------ convenience CG functions for vector, matrix and camera transformations --------------
 
 def identity(rank=4):

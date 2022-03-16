@@ -140,7 +140,7 @@ class VertexArray(Component):
                 gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._buffers[-1])
                 gl.glBufferData(gl.GL_ARRAY_BUFFER, data, self._usage)
                 gl.glVertexAttribPointer(loc, size, gl.GL_FLOAT, False, 0, None)
-           
+
         
         #optionally create and upload an index buffer for this VBO         
         self._draw_command = gl.glDrawArrays
@@ -153,6 +153,7 @@ class VertexArray(Component):
             self._draw_command = gl.glDrawElements
             self._arguments = (index_buffer.size, gl.GL_UNSIGNED_INT, None)
         
+        # mprabo papajohn
         # cleanup and unbind so no accidental subsequent state update
         gl.glBindVertexArray(0)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)

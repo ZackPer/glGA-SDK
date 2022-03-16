@@ -11,13 +11,19 @@ pyglGA ECSS package
 
 from __future__         import annotations
 from asyncore import dispatcher
+from math import sin, cos, radians
 from enum import Enum
 from random import uniform;
 import numpy as np
 import imgui
-import sys;
+import sys
+
+from zmq import ROUTER_MANDATORY
+
+from pyglGA.scripts.IndexedConverter import IndexedConverter;
 sys.path.append("C:\\Users\\User\\Documents\\glGA-SDK\\packages");
 
+import OpenGL.GL as gl;
 import pyglGA.ECSS.utilities as util
 from pyglGA.ECSS.System import System, TransformSystem, CameraSystem
 from pyglGA.ECSS.Entity import Entity
@@ -29,25 +35,6 @@ from pyglGA.ext.Shader import InitGLShaderSystem, Shader, ShaderGLDecorator, Ren
 from pyglGA.ext.VertexArray import VertexArray
 from pyglGA.ext.Scene import Scene
  
-class imgui_GameObjectProperties(ImGUIDecorator):
-    # This UI should provide a better tool for UI
-    def __init__(self, wrapee: RenderWindow, imguiContext = None):
-        super().__init__(wrapee, imguiContext);
-        # Name
-        self.name = "Random comp";
-        # TRS
-        self.translation    = [0, 0, 0, 0];
-        self.rotation       = [0, 0, 0, 0];
-        self.scale          = [0, 0, 0, 0];
-        # Material
-        
-    def Draw(self):
-        imgui.begin("Inspector: " + self.name);
-        imgui.end();
-        None;
-
-    None;
-
 class ImGUIecssDecorator(ImGUIDecorator):
     """custom ImGUI decorator for this example
 
@@ -56,12 +43,19 @@ class ImGUIecssDecorator(ImGUIDecorator):
     """
     def __init__(self, wrapee: RenderWindow, imguiContext = None):
         super().__init__(wrapee, imguiContext)
-        # @GPTODO:
-        # we should be able to retrieve all these just from the Scene: ECSSManager
-        self.translation = [0.0, 0.0, 0.0, 0.0]
-        self.rotation = [0.0, 0.0, 0.0, 0.0];
-        self.mvpMat = None
-        self.shaderDec = None
+        self.selected = None; # Selected should be a component
+
+        # TRS Variables 
+        self.translation = {};
+        self.translation["x"] = 0; self.translation["y"] = 0; self.translation["z"] = 0; 
+
+        self.rotation = {};
+        self.rotation["x"] = 0; self.rotation["y"] = 0; self.rotation["z"] = 0; 
+
+        self.scale = {};
+        self.scale["x"] = 0; self.scale["y"] = 0; self.scale["z"] = 0; 
+
+        self.color = [255, 50, 50];
         
     def scenegraphVisualiser(self):
         """display the ECSS in an ImGUI tree node structure
@@ -75,24 +69,44 @@ class ImGUIecssDecorator(ImGUIDecorator):
         imgui.columns(2,"Properties")
         # below is a recursive call to build-up the whole scenegraph as ImGUI tree
         if imgui.tree_node(sceneRoot, imgui.TREE_NODE_OPEN_ON_ARROW):
-            self.drawNode(self.wrapeeWindow.scene.world.root, self.translation, self.rotation)
+            self.drawNode(self.wrapeeWindow.scene.world.root)
             imgui.tree_pop()
         imgui.next_column()
         imgui.text("Properties")
         imgui.separator()
+
         #TRS sample
-        changed, trans = imgui.drag_float4("Translation", *self.translation)
-        self.translation = list(trans)
-        changed, rot = imgui.drag_float4("Rotation", *self.rotation)
-        self.rotation = list(rot)
+        # if(isinstance(self.selected, BasicTransform)):
+        if imgui.tree_node("Translation", imgui.TREE_NODE_OPEN_ON_ARROW):
+            changed, value = imgui.slider_float("X", self.translation["x"], -3, 3, "%.01f", 1);
+            self.translation["x"] = value;
+            changed, value = imgui.slider_float("Y", self.translation["y"], -3, 3, "%.01f", 1);
+            self.translation["y"] = value;
+            changed, value = imgui.slider_float("Z", self.translation["z"], -3, 3, "%.01f", 1);
+            self.translation["z"] = value;
+            imgui.tree_pop();
+        if imgui.tree_node("Rotation", imgui.TREE_NODE_OPEN_ON_ARROW):
+            changed, value = imgui.slider_float("X", self.rotation["x"], -90, 90, "%.1f", 1);
+            self.rotation["x"] = value;
+            changed, value = imgui.slider_float("Y", self.rotation["y"], -90, 90, "%.1f", 1);
+            self.rotation["y"] = value;
+            changed, value = imgui.slider_float("Z", self.rotation["z"], -90, 90, "%.1f", 1);
+            self.rotation["z"] = value;
+            imgui.tree_pop();
+        if imgui.tree_node("Scale", imgui.TREE_NODE_OPEN_ON_ARROW):
+            changed, value = imgui.slider_float("X", self.scale["x"], 0, 3, "%.01f", 1);
+            self.scale["x"] = value;
+            changed, value = imgui.slider_float("Y", self.scale["y"], 0, 3, "%.01f", 1);
+            self.scale["y"] = value;
+            changed, value = imgui.slider_float("Z", self.scale["z"], 0, 3, "%.01f", 1);
+            self.scale["z"] = value;
+            imgui.tree_pop();
+        changed, value = imgui.color_edit3("Color", self.color[0], self.color[1], self.color[2]);
+        self.color = [value[0], value[1], value[2]];
         
         imgui.end()
         
-    def drawNode(self, component, translation = None, rotation = None):
-        #save initial translation value
-        lastTranslation = translation
-        lastRotation = rotation;
-        
+    def drawNode(self, component):
         #create a local iterator of Entity's children
         if component._children is not None:
             debugIterator = iter(component._children)
@@ -110,38 +124,42 @@ class ImGUIecssDecorator(ImGUIDecorator):
                         #imgui.text(comp.__str__())
                         _, selected = imgui.selectable(comp.__str__(), True)
                         if selected:
-                            print(f'Selected: {selected} of node: {comp}'.center(100, '-'))
-                            selected = False
-                            #check if the component is a BasicTransform
-                            if (isinstance(comp, BasicTransform)):
-                                #set now the comp:
-                                comp.trs = util.translate(lastTranslation[0],lastTranslation[1],lastTranslation[2])
-                                #retrive the translation vector from the TRS matrix
-                                # @GPTODO this needs to be provided as utility method
-                                trsMat = comp.trs
-                                [x,y,z] = trsMat[:3,3]
-                                if translation is not None:
-                                    translation[0] = x
-                                    translation[1] = y
-                                    translation[2] = z
-                                    translation[3] = 1
-                                # Same for rotation
-                                # comp.trs = trns
-                                # set now the comp:
-                                
-                                # Rotation test
-                                rotateMat = util.rotate((1.0, 0.0, 0.0), lastRotation[0]) @ util.rotate((0.0, 1.0, 0.0), lastRotation[1]) @ util.rotate((0.0, 0.0, 1.0), lastRotation[2])
-                                comp.trs = comp.trs @ rotateMat;
-                                #retrive the translation vector from the TRS matrix
-                                # @GPTODO this needs to be provided as utility method
-                                trsMat = comp.trs
-                                rotation[0] = lastRotation[0];
-                                rotation[1] = lastRotation[1];
-                                rotation[2] = lastRotation[2];
+                            if comp != self.selected: # First time selecting it. Set trs values to GUI;
+                                self.selected = comp;
+                                if isinstance(comp, BasicTransform):
+                                    [x, y, z] = comp.translation;
+                                    self.translation["x"] = x;
+                                    self.translation["y"] = y;
+                                    self.translation["z"] = z;
+                                    [x, y, z] = comp.scale;
+                                    self.scale["x"] = x;
+                                    self.scale["y"] = y;
+                                    self.scale["z"] = z;
+                                    [x, y, z] = comp.rotationEulerAngles;
+                                    self.rotation["x"] = x;
+                                    self.rotation["y"] = y;
+                                    self.rotation["z"] = z;
+                                elif isinstance(comp, GameObjectEntity):
+                                    self.color = comp.color.copy();
+                            else:                       # Set GUI values to trs;
+                                if isinstance(comp, BasicTransform):
+                                    transMat = util.translate(self.translation["x"], self.translation["y"], self.translation["z"]);
+                                    rotMatX = util.rotate((1, 0, 0), self.rotation["x"])
+                                    rotMatY = util.rotate((0, 1, 0), self.rotation["y"])
+                                    rotMatZ = util.rotate((0, 0, 1), self.rotation["z"])
+                                    scaleMat = util.scale(self.scale["x"], self.scale["y"], self.scale["z"])
+
+                                    comp.trs = util.identity() @ transMat @ rotMatX @ rotMatY @ rotMatZ @ scaleMat;
+                                    # comp.trs = scaleMat @ rotMatZ @ rotMatY @ rotMatX @ transMat;
+                                elif isinstance(comp, GameObjectEntity):
+                                    temp = [self.color[0], self.color[1], self.color[2]];
+                                    comp.color = temp;
+                                elif isinstance(comp, Light):
+                                    comp.drawSelfGui(imgui);
 
                         imgui.tree_pop()
                     
-                    self.drawNode(comp, translation, rotation) # recursive call of this method to traverse hierarchy
+                    self.drawNode(comp) # recursive call of this method to traverse hierarchy
                     imgui.unindent(10) # Corrent placement of unindent
 
 class GameObjectEntity(Entity):
@@ -151,7 +169,7 @@ class GameObjectEntity(Entity):
         # Create basic components of a primitive object
         self.trans          = BasicTransform(name="trans", trs=util.identity());
         self.mesh           = RenderMesh(name="mesh");
-        self.shaderDec      = ShaderGLDecorator(Shader(vertex_source = Shader.COLOR_VERT_MVP, fragment_source = Shader.COLOR_FRAG));
+        self.shaderDec      = ShaderGLDecorator(Shader(vertex_source=Shader.VERT_PHONG_MVP, fragment_source=Shader.FRAG_PHONG));
         self.vArray         = VertexArray();
         # Add components to entity
         scene = Scene();
@@ -161,21 +179,56 @@ class GameObjectEntity(Entity):
         scene.world.addComponent(self, self.shaderDec);
         scene.world.addComponent(self, self.vArray);
 
-    def SetVertexAttributes(self, vertex, color, index):
-        self.mesh.vertex_attributes.append(vertex);
-        self.mesh.vertex_attributes.append(color);
-        self.mesh.vertex_index.append(index);
-
-    def SetColor(self, r, g, b):
+    @property
+    def color(self):
+        return self.mesh.vertex_attributes[1][0];
+    @color.setter
+    def color(self, colorArray):
         color = self.mesh.vertex_attributes[1];
         for vertex in color:
-            vertex[0] = r;
-            vertex[1] = b;
-            vertex[2] = g;
+            vertex[0] = colorArray[0];
+            vertex[1] = colorArray[1];
+            vertex[2] = colorArray[2];
 
+    def SetVertexAttributes(self, vertex, color, index, normals = None):
+        self.mesh.vertex_attributes.append(vertex);
+        self.mesh.vertex_attributes.append(color);
+        if normals is not None:
+            self.mesh.vertex_attributes.append(normals);
+        self.mesh.vertex_index.append(index);
+
+class Light(Entity):
+    def __init__(self, name=None, type=None, id=None) -> None:
+        super().__init__(name, type, id);
+        # Add variables for light
+        self.color = [1, 1, 1];
+        self.intensity = 1;
+    
+    def drawSelfGui(self, imgui):
+        changed, value = imgui.slider_float("Intensity", self.intensity, 0, 10, "%.1f", 1);
+        self.intensity = value;
+
+        changed, value = imgui.color_edit3("Color", self.color[0], self.color[1], self.color[2]);
+        self.color = [value[0], value[1], value[2]];
+        None;
+
+class PointLight(Light):
+    def __init__(self, name=None, type=None, id=None) -> None:
+        super().__init__(name, type, id);
+
+        # Create basic components of a primitive object
+        self.trans          = BasicTransform(name="trans", trs=util.identity());
+        scene = Scene();
+        scene.world.createEntity(self);
+        scene.world.addComponent(self, self.trans);
+
+    def drawSelfGui(self, imgui):
+        super().drawSelfGui(imgui);
+    
 class PrimitiveGameObjectType(Enum):
     CUBE = 0
     PYRAMID = 1
+    QUAD = 2
 
 class PrimitiveGameObjectSpawner():
     _instance = None;
@@ -187,36 +240,65 @@ class PrimitiveGameObjectSpawner():
             cls._instance.__initialize();
         return cls._instance;
     def __initialize(self):
-        def CubeSpawn(): 
-            cube = GameObjectEntity("Cube");
-            vertexCube = np.array(
+        def QuadSpawn():
+            quad = GameObjectEntity("Quad");
+            vertices = np.array(
                 [
-                    [-0.5, -0.5, 0.5, 1.0],
-                    [-0.5, 0.5, 0.5, 1.0],
-                    [0.5, 0.5, 0.5, 1.0],
-                    [0.5, -0.5, 0.5, 1.0], 
-                    [-0.5, -0.5, -0.5, 1.0], 
-                    [-0.5, 0.5, -0.5, 1.0], 
-                    [0.5, 0.5, -0.5, 1.0], 
-                    [0.5, -0.5, -0.5, 1.0]
+                    [-1, 0, -1, 1.0],
+                    [1, 0, -1, 1.0], 
+                    [-1, 0, 1, 1.0],
+                    [1, 0, 1, 1.0],
                 ],
                 dtype=np.float32
-            ) 
-            colorCube = np.array(
+            )
+            colors = np.array(
                 [
                     [1.0, 1.0, 1.0, 1.0],
                     [1.0, 1.0, 1.0, 1.0],
                     [1.0, 1.0, 1.0, 1.0],
                     [1.0, 1.0, 1.0, 1.0],
-                    [1.0, 1.0, 1.0, 1.0],
-                    [1.0, 1.0, 1.0, 1.0],
-                    [1.0, 1.0, 1.0, 1.0],
-                    [1.0, 1.0, 1.0, 1.0]
-                ], 
+                ],
                 dtype=np.float32
             )
+            indices = np.array(
+                (
+                    1, 0, 3,
+                    2, 3, 0
+                ),
+                np.uint32
+            )
+            normals = [];
+            for i in range(0, len(indices), 3):
+                normals.append(util.calculateNormals(vertices[indices[i]], vertices[indices[i + 1]], vertices[indices[i + 2]]));
+                normals.append(util.calculateNormals(vertices[indices[i]], vertices[indices[i + 1]], vertices[indices[i + 2]]));
+                normals.append(util.calculateNormals(vertices[indices[i]], vertices[indices[i + 1]], vertices[indices[i + 2]]));
+                None;
+            quad.SetVertexAttributes(vertices, colors, indices, normals);
+            return quad;
+        def CubeSpawn(): 
+            cube = GameObjectEntity("Cube");
+            vertices = [
+                [-0.5, -0.5, 0.5, 1.0],
+                [-0.5, 0.5, 0.5, 1.0],
+                [0.5, 0.5, 0.5, 1.0],
+                [0.5, -0.5, 0.5, 1.0], 
+                [-0.5, -0.5, -0.5, 1.0], 
+                [-0.5, 0.5, -0.5, 1.0], 
+                [0.5, 0.5, -0.5, 1.0], 
+                [0.5, -0.5, -0.5, 1.0]
+            ];
+            colors = [
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0]                    
+            ];
             #index arrays for above vertex Arrays
-            indexCube = np.array(
+            indices = np.array(
                 (
                     1,0,3, 1,3,2, 
                     2,3,7, 2,7,6,
@@ -225,54 +307,53 @@ class PrimitiveGameObjectSpawner():
                     4,5,6, 4,6,7,
                     5,4,0, 5,0,1
                 ),
-                np.uint32
+                dtype=np.uint32
             ) #rhombus out of two triangles
-            cube.SetVertexAttributes(vertexCube, colorCube, indexCube);
 
+            vertices, colors, normals, indices = IndexedConverter().Convert(vertices, colors, indices, produceNormals=True);
+            cube.SetVertexAttributes(vertices, colors, indices, normals);
+            
             return cube;
         def PyramidSpawn():
             pyramid = GameObjectEntity("Pyramid");
-            vertexPyramid = np.array(
-                [
-                    [-0.5, -0.5, -0.5, 1.0],
-                    [-0.5, -0.5, 0.5, 1.0],
-                    [0.5, -0.5, 0.5, 1.0],
-                    [0.5, -0.5, -0.5, 1.0],
-                    [0.0, 0.5, 0.0, 1.0],
-                ],
-                dtype=np.float32
-            ) 
-            colorPyramid = np.array(
-                [
-                    [0.0, 1.0, 1.0, 1.0],
-                    [0.0, 1.0, 1.0, 1.0],
-                    [0.0, 1.0, 1.0, 1.0],
-                    [0.0, 1.0, 1.0, 1.0],
-                    [0.0, 1.0, 1.0, 1.0],
-                ], 
-                dtype=np.float32
-            )
+            vertices = [
+                [-0.5, -0.5, -0.5, 1.0],
+                [-0.5, -0.5, 0.5, 1.0],
+                [0.5, -0.5, 0.5, 1.0],
+                [0.5, -0.5, -0.5, 1.0],
+                [0.0, 0.5, 0.0, 1.0],
+            ]; 
+            colors = [
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 1.0],
+            ];
             #index arrays for above vertex Arrays
-            indexPyramid = np.array(
+            indices = np.array(
                 (
                     1,0,3, 1,3,2,
-                    0,3,4,
+                    3,0,4,
                     0,1,4,
-                    1,4,2,
-                    2,4,3
+                    1,2,4,
+                    2,3,4
                 ),
                 np.uint32
             ) #rhombus out of two pyramids
-            pyramid.SetVertexAttributes(vertexPyramid, colorPyramid, indexPyramid);
+            
+            vertices, colors, normals, indices = IndexedConverter().Convert(vertices, colors, indices, produceNormals=True);
+            pyramid.SetVertexAttributes(vertices, colors, indices, normals);
+
             return pyramid;
 
         self.__dispatcher[PrimitiveGameObjectType.CUBE] = CubeSpawn;
         self.__dispatcher[PrimitiveGameObjectType.PYRAMID] = PyramidSpawn;
+        self.__dispatcher[PrimitiveGameObjectType.QUAD] = QuadSpawn;
         None;
     
     def Spawn(self, type: PrimitiveGameObjectType):
         return self.__dispatcher[type]();
-        None;
 
 def SpawnHome():
     scene = Scene();
@@ -283,13 +364,14 @@ def SpawnHome():
     # Add trs to home
     trans = BasicTransform(name="trans", trs=util.identity());    scene.world.addComponent(home, trans);
 
+    # Create simple cube
+    cube: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.CUBE);
+    scene.world.addEntityChild(home, cube);
+
     # Create simple pyramid
     pyramid: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.PYRAMID);
     scene.world.addEntityChild(home, pyramid);
     pyramid.trans.trs = util.translate(0, 1, 0); # Move pyramid to the top of the cube
-    # Create simple cube
-    cube: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.CUBE);
-    scene.world.addEntityChild(home, cube);
 
     return home;
 
@@ -329,14 +411,22 @@ def main(imguiFlag = False):
     scene.world.addEntityChild(entityCam1, entityCam2)
     trans2 = scene.world.addComponent(entityCam2, BasicTransform(name="trans2", trs=util.identity()))
     # orthoCam = scene.world.addComponent(entityCam2, Camera(util.ortho(-5.0, 5.0, -5.0, 5.0, 0.0, 100.0), "orthoCam","Camera","500"))
-    orthoCam = scene.world.addComponent(entityCam2, Camera(util.perspective(20, 1, 0, 100), "orthoCam","Camera","500"))
+    orthoCam = scene.world.addComponent(entityCam2, Camera(util.perspective(50, 1, 1, 50), "orthoCam","Camera","500"))
 
+    #  Spawn light
+    ambientLight = Light("Ambient Light");
+    ambientLight.intensity = 0.1;
+    scene.world.addEntityChild(rootEntity, ambientLight);
+    pointLight = PointLight();
+    pointLight.trans.trs = util.translate(0.8, 1, 1)
+    scene.world.addEntityChild(rootEntity, pointLight);
+
+    # Spawn homes
     home1: Entity = SpawnHome();
-    home1.getChild(0).trs = util.translate(0, 0, 0) @ util.scale(0.5, 0.5, 0.5);
-    home1.getChild(1).SetColor(255, 255, 0);
-
+    home1.getChild(0).trs = util.translate(0, 0, 0);
+    
     home2: Entity = SpawnHome();
-    home2.getChild(0).trs = util.translate(1, 0, 0) @ util.scale(0.5, 0.5, 0.5);
+    home2.getChild(0).trs = util.translate(2, 0, 2);
 
     applyUniformTransformList = [];
     applyUniformTransformList.append(home1);
@@ -344,7 +434,7 @@ def main(imguiFlag = False):
 
     # Camera settings
     trans2.trs = util.translate(0, 0, 8) # VIEW
-    trans1.trs = util.identity(); # MODEL
+    trans1.trs = util.rotate((1, 0, 0), -40);
         
     scene.world.print()
     # scene.world.eventManager.print()
@@ -361,6 +451,13 @@ def main(imguiFlag = False):
     #   pre-pass scenegraph to initialise all GL context dependent geometry, shader classes
     #   needs an active GL context
     # ---------------------------------------------------------
+    
+    gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+    gl.glDisable(gl.GL_CULL_FACE);
+
+    # gl.glDepthMask(gl.GL_FALSE);  
+    gl.glEnable(gl.GL_DEPTH_TEST);
+    gl.glDepthFunc(gl.GL_LESS);
     scene.world.traverse_visit(initUpdate, scene.world.root)
     
     
@@ -418,13 +515,27 @@ def main(imguiFlag = False):
         # 3. run proper Ml2c traversal
         scene.world.traverse_visit(camUpdate, scene.world.root)
         
+
+        viewPos = trans2.l2world[:3, 3].tolist();
+        lightPos = pointLight.trans.l2world[:3, 3].tolist();
         # 3.1 shader uniform variable allocation per frame
         for uniformItem in applyUniformTransformList:
             for child in uniformItem._children:
                 if(isinstance(child, GameObjectEntity)):
-                    child.shaderDec.setUniformVariable(key='modelViewProj', value=child.trans.l2cam, mat4=True)
+                    child.shaderDec.setUniformVariable(key='modelViewProj', value=child.trans.l2cam, mat4=True);
+                    child.shaderDec.setUniformVariable(key='model', value=child.trans.l2world, mat4=True);
 
-        
+                    child.shaderDec.setUniformVariable(key='ambientColor', value=ambientLight.color, float3=True);
+                    child.shaderDec.setUniformVariable(key='ambientStr', value=ambientLight.intensity, float1=True);
+                    child.shaderDec.setUniformVariable(key='shininess', value=0.5, float1=True);
+                    child.shaderDec.setUniformVariable(key='matColor', value=np.array([1.0, 1.0, 1.0]), float3=True);
+
+                    child.shaderDec.setUniformVariable(key='viewPos', value=viewPos, float3=True);
+                    child.shaderDec.setUniformVariable(key='lightPos', value=lightPos, float3=True);
+                    child.shaderDec.setUniformVariable(key='lightColor', value=np.array(pointLight.color), float3=True);
+                    child.shaderDec.setUniformVariable(key='lightIntensity', value=pointLight.intensity, float1=True);
+
+
         # 4. call SDLWindow/ImGUI display() and ImGUI event input process
         running = scene.render(running)
         # 5. call the GL State render System

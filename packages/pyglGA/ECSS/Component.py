@@ -22,6 +22,7 @@ The following is example restructured text doc example
 
 from __future__         import annotations
 from abc                import ABC, abstractmethod
+from math import atan2
 from typing             import List
 from collections.abc    import Iterable, Iterator
 
@@ -271,7 +272,29 @@ class BasicTransform(Component):
     @l2cam.setter
     def l2cam(self, value):
         self._l2cam = value                 
-    
+
+    @property #translation vector
+    def translation(self):
+        return self.trs[:3,3];
+    @property #rotation vector
+    def rotationEulerAngles(self):
+        # First get rotation matrix from trs. Divide by scale
+        rotationMatrix = self.trs.copy();
+        rotationMatrix[:][0] /= self.scale[0];
+        rotationMatrix[:][1] /= self.scale[1];
+        rotationMatrix[:][2] /= self.scale[2];
+        # Now, extract euler angles from rotation matrix
+        x = atan2(rotationMatrix[1][2], rotationMatrix[2][2]);
+        y = 0;
+        z = 0;
+        return [x, y, z];
+    @property #scale vector
+    def scale(self):
+        x = self.trs[0, 0];
+        y = self.trs[1, 1];
+        z = self.trs[2, 2];
+        return [x, y, z];
+
     def update(self, **kwargs):
         """ Local 2 world transformation calculation
         Traverses upwards whole scenegraph and multiply all transformations along this path
@@ -292,7 +315,6 @@ class BasicTransform(Component):
             print("Setting: ", arg3," with: \n", kwargs[arg3])
             self._l2cam = kwargs[arg3]
         
-       
     def accept(self, system: pyglGA.ECSS.System, event = None):
         """
         Accepts a class object to operate on the Component, based on the Visitor pattern.
@@ -316,7 +338,7 @@ class BasicTransform(Component):
         abstract method to be subclassed for extra initialisation
         """
         pass
-    
+
     def __str__(self):
         return f"\n {self.getClassName()} name: {self._name}, type: {self._type}, id: {self._id}, parent: {self._parent._name}, \nl2world: \n{self.l2world}, \nl2cam: \n{self.l2cam}, \ntrs: \n{self.trs}"
     

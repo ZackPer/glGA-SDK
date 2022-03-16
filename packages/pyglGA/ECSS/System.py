@@ -250,8 +250,6 @@ class TransformSystem(System):
                 
         return l2worldTRS
         
-        
-    
     def apply2BasicTransform(self, basicTransform: pyglGA.ECSS.Component.BasicTransform):
         """
         method to be subclassed for  behavioral or logic computation 
