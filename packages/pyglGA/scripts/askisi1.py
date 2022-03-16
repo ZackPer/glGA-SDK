@@ -101,9 +101,7 @@ class ImGUIecssDecorator(ImGUIDecorator):
             changed, value = imgui.slider_float("Z", self.scale["z"], 0, 3, "%.01f", 1);
             self.scale["z"] = value;
             imgui.tree_pop();
-        changed, value = imgui.color_edit3("Color", self.color[0], self.color[1], self.color[2]);
-        self.color = [value[0], value[1], value[2]];
-        
+
         imgui.end()
         
     def drawNode(self, component):
@@ -151,10 +149,7 @@ class ImGUIecssDecorator(ImGUIDecorator):
 
                                     comp.trs = util.identity() @ transMat @ rotMatX @ rotMatY @ rotMatZ @ scaleMat;
                                     # comp.trs = scaleMat @ rotMatZ @ rotMatY @ rotMatX @ transMat;
-                                elif isinstance(comp, GameObjectEntity):
-                                    temp = [self.color[0], self.color[1], self.color[2]];
-                                    comp.color = temp;
-                                elif isinstance(comp, Light):
+                                elif hasattr(comp, "drawSelfGui"):
                                     comp.drawSelfGui(imgui);
 
                         imgui.tree_pop()
@@ -166,6 +161,8 @@ class GameObjectEntity(Entity):
     def __init__(self, name=None, type=None, id=None) -> None:
         super().__init__(name, type, id);
 
+        # Gameobject basic properties
+        self._color          = [1, 1, 1]; # this will be used as a uniform var
         # Create basic components of a primitive object
         self.trans          = BasicTransform(name="trans", trs=util.identity());
         self.mesh           = RenderMesh(name="mesh");
@@ -181,14 +178,14 @@ class GameObjectEntity(Entity):
 
     @property
     def color(self):
-        return self.mesh.vertex_attributes[1][0];
+        return self._color;
     @color.setter
     def color(self, colorArray):
-        color = self.mesh.vertex_attributes[1];
-        for vertex in color:
-            vertex[0] = colorArray[0];
-            vertex[1] = colorArray[1];
-            vertex[2] = colorArray[2];
+        self._color = colorArray;
+
+    def drawSelfGui(self, imgui):
+        changed, value = imgui.color_edit3("Color", self.color[0], self.color[1], self.color[2]);
+        self.color = [value[0], value[1], value[2]];
 
     def SetVertexAttributes(self, vertex, color, index, normals = None):
         self.mesh.vertex_attributes.append(vertex);
@@ -224,7 +221,69 @@ class PointLight(Light):
 
     def drawSelfGui(self, imgui):
         super().drawSelfGui(imgui);
-    
+
+class SimpleCamera(Entity):
+    def __init__(self, name=None, type=None, id=None) -> None:
+        super().__init__(name, type, id)
+        scene = Scene();
+        rootEntity = scene.world.root;
+
+        scene.world.addEntityChild(rootEntity, self);
+
+        entityCam1 = scene.world.createEntity(Entity(name="entityCam1"));
+        scene.world.addEntityChild(self, entityCam1);
+        self.trans1 = scene.world.addComponent(entityCam1, BasicTransform(name="trans1", trs=util.identity()));
+        
+        entityCam2 = scene.world.createEntity(Entity(name="entityCam2"));
+        scene.world.addEntityChild(entityCam1, entityCam2);
+        self.trans2 = scene.world.addComponent(entityCam2, BasicTransform(name="trans2", trs=util.identity()));
+        
+        self._near = 1;
+        self._far = 20;
+
+        self._fov = 50;
+        self._aspect = 1.0;
+
+        self._left = -10;
+        self._right = 10;
+        self._bottom = -10;
+        self._top = 10;
+
+        self._mode = "perspective";
+        self._camera = scene.world.addComponent(entityCam2, Camera(util.perspective(self._fov, self._aspect, self._near, self._far), "MainCamera", "Camera", "500"));        
+        None;
+
+    @property
+    def camera(self):
+        return self._camera;
+
+    def drawSelfGui(self, imgui):
+        if imgui.button("Orthograpic") and self._mode is "perspective":
+            self._mode = "orthographic";
+            self._camera.projMat = util.ortho(self._left, self._right, self._bottom, self._top, self._near, self._far);
+        if imgui.button("Perspective") and self._mode is "orthographic":
+            self._mode = "perspective";
+            self._camera.projMat = util.perspective(self._fov, self._aspect, self._near, self._far)
+
+        if self._mode is "orthographic":
+            changed, value = imgui.slider_float("Left", self._left, -50, -1, "%0.1f", 1);
+            self._left = value;
+            changed, value = imgui.slider_float("Right", self._right, 1, 50, "%0.1f", 1);
+            self._right = value;
+            changed, value = imgui.slider_float("Bottom", self._bottom, -50, -1, "%0.1f", 1);
+            self._bottom = value;
+            changed, value = imgui.slider_float("Top", self._top, 1, 50, "%0.1f", 1);
+            self._top = value;
+
+            self._camera.projMat = util.ortho(self._left, self._right, self._bottom, self._top, self._near, self._far);
+        elif self._mode is "perspective":
+            changed, value = imgui.slider_float("FOV", self._fov, 1, 120, "%0.1f", 1);
+            self._fov = value;
+            changed, value = imgui.slider_float("Aspect", self._aspect, 0.5, 2, "%0.1f", 1);
+            self._aspect = value;
+
+            self._camera.projMat = util.perspective(self._fov, self._aspect, self._near, self._far)
+
 class PrimitiveGameObjectType(Enum):
     CUBE = 0
     PYRAMID = 1
@@ -355,6 +414,23 @@ class PrimitiveGameObjectSpawner():
     def Spawn(self, type: PrimitiveGameObjectType):
         return self.__dispatcher[type]();
 
+class RotateAnimation(Entity):
+    def __init__(self, name=None, type=None, id=None) -> None:
+        super().__init__(name, type, id);
+        self._angle = 1;
+        self._target = None;
+
+    def SetTarget(self, target: BasicTransform):
+        self._target = target;
+
+    def Progress(self):
+        self._target.trs = self._target.trs @ util.rotate((0, 1, 0), self._angle);
+
+    def drawSelfGui(self, imgui):
+        changed, value = imgui.slider_float("Euler Angle", self._angle, -20, 20, "%.1f", 1);
+        self._angle = value;
+    
+
 def SpawnHome():
     scene = Scene();
 
@@ -374,6 +450,7 @@ def SpawnHome():
     pyramid.trans.trs = util.translate(0, 1, 0); # Move pyramid to the top of the cube
 
     return home;
+
 
 def main(imguiFlag = False):
     ##########################################################
@@ -403,15 +480,9 @@ def main(imguiFlag = False):
     
     # Scenegraph with Entities, Components
     rootEntity = scene.world.createEntity(Entity(name="Root"))
-    entityCam1 = scene.world.createEntity(Entity(name="entityCam1"))
-    scene.world.addEntityChild(rootEntity, entityCam1)
-    trans1 = scene.world.addComponent(entityCam1, BasicTransform(name="trans1", trs=util.identity()))
-    
-    entityCam2 = scene.world.createEntity(Entity(name="entityCam2"))
-    scene.world.addEntityChild(entityCam1, entityCam2)
-    trans2 = scene.world.addComponent(entityCam2, BasicTransform(name="trans2", trs=util.identity()))
-    # orthoCam = scene.world.addComponent(entityCam2, Camera(util.ortho(-5.0, 5.0, -5.0, 5.0, 0.0, 100.0), "orthoCam","Camera","500"))
-    orthoCam = scene.world.addComponent(entityCam2, Camera(util.perspective(50, 1, 1, 50), "orthoCam","Camera","500"))
+
+    # Spawn Camera
+    mainCamera = SimpleCamera("Simple Camera");
 
     #  Spawn light
     ambientLight = Light("Ambient Light");
@@ -428,13 +499,24 @@ def main(imguiFlag = False):
     home2: Entity = SpawnHome();
     home2.getChild(0).trs = util.translate(2, 0, 2);
 
+    # Spawn and apply animation to pyramid
+    rotatingPyramid = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.PYRAMID);
+    rotatingPyramid.trans.trs = util.translate(-2, 0, -1);
+    scene.world.addEntityChild(rootEntity, rotatingPyramid);
+    rotateAnimation = RotateAnimation("Rotate Animation");
+    rotateAnimation.SetTarget(rotatingPyramid.trans);
+    scene.world.addEntityChild(rotatingPyramid, rotateAnimation);
+
     applyUniformTransformList = [];
-    applyUniformTransformList.append(home1);
-    applyUniformTransformList.append(home2);
+    applyUniformTransformList.append(home1.getChild(1));
+    applyUniformTransformList.append(home1.getChild(2));
+    applyUniformTransformList.append(home2.getChild(1));
+    applyUniformTransformList.append(home2.getChild(2));
+    applyUniformTransformList.append(rotatingPyramid);
 
     # Camera settings
-    trans2.trs = util.translate(0, 0, 8) # VIEW
-    trans1.trs = util.rotate((1, 0, 0), -40);
+    mainCamera.trans2.trs = util.translate(0, 0, 8) # VIEW
+    mainCamera.trans1.trs = util.rotate((1, 0, 0), -40);
         
     scene.world.print()
     # scene.world.eventManager.print()
@@ -502,6 +584,7 @@ def main(imguiFlag = False):
     # Add RenderWindow to the EventManager publishers
     eManager._publishers[updateBackground.name] = gGUI
 
+
     while running:
         # ---------------------------------------------------------
         # run Systems in the scenegraph
@@ -511,30 +594,31 @@ def main(imguiFlag = False):
         # 1. L2W traversal
         scene.world.traverse_visit(transUpdate, scene.world.root) 
         # 2. pre-camera Mr2c traversal
-        scene.world.traverse_visit_pre_camera(camUpdate, orthoCam)
+        scene.world.traverse_visit_pre_camera(camUpdate, mainCamera.camera)
         # 3. run proper Ml2c traversal
         scene.world.traverse_visit(camUpdate, scene.world.root)
         
 
-        viewPos = trans2.l2world[:3, 3].tolist();
+        viewPos = mainCamera.trans2.l2world[:3, 3].tolist();
         lightPos = pointLight.trans.l2world[:3, 3].tolist();
         # 3.1 shader uniform variable allocation per frame
-        for uniformItem in applyUniformTransformList:
-            for child in uniformItem._children:
-                if(isinstance(child, GameObjectEntity)):
-                    child.shaderDec.setUniformVariable(key='modelViewProj', value=child.trans.l2cam, mat4=True);
-                    child.shaderDec.setUniformVariable(key='model', value=child.trans.l2world, mat4=True);
+        for object in applyUniformTransformList:
+            if(isinstance(object, GameObjectEntity)):
+                object.shaderDec.setUniformVariable(key='modelViewProj', value=object.trans.l2cam, mat4=True);
+                object.shaderDec.setUniformVariable(key='model', value=object.trans.l2world, mat4=True);
 
-                    child.shaderDec.setUniformVariable(key='ambientColor', value=ambientLight.color, float3=True);
-                    child.shaderDec.setUniformVariable(key='ambientStr', value=ambientLight.intensity, float1=True);
-                    child.shaderDec.setUniformVariable(key='shininess', value=0.5, float1=True);
-                    child.shaderDec.setUniformVariable(key='matColor', value=np.array([1.0, 1.0, 1.0]), float3=True);
+                object.shaderDec.setUniformVariable(key='ambientColor', value=ambientLight.color, float3=True);
+                object.shaderDec.setUniformVariable(key='ambientStr', value=ambientLight.intensity, float1=True);
+                object.shaderDec.setUniformVariable(key='shininess', value=0.5, float1=True);
+                object.shaderDec.setUniformVariable(key='matColor', value=object.color, float3=True);
 
-                    child.shaderDec.setUniformVariable(key='viewPos', value=viewPos, float3=True);
-                    child.shaderDec.setUniformVariable(key='lightPos', value=lightPos, float3=True);
-                    child.shaderDec.setUniformVariable(key='lightColor', value=np.array(pointLight.color), float3=True);
-                    child.shaderDec.setUniformVariable(key='lightIntensity', value=pointLight.intensity, float1=True);
+                object.shaderDec.setUniformVariable(key='viewPos', value=viewPos, float3=True);
+                object.shaderDec.setUniformVariable(key='lightPos', value=lightPos, float3=True);
+                object.shaderDec.setUniformVariable(key='lightColor', value=np.array(pointLight.color), float3=True);
+                object.shaderDec.setUniformVariable(key='lightIntensity', value=pointLight.intensity, float1=True);
 
+        # 3.2 progress animations
+        rotateAnimation.Progress();
 
         # 4. call SDLWindow/ImGUI display() and ImGUI event input process
         running = scene.render(running)

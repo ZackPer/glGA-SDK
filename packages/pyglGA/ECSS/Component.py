@@ -346,8 +346,6 @@ class BasicTransform(Component):
         """ A concrete component does not have children to iterate, thus a NULL iterator
         """
         return CompNullIterator(self) 
-
-
 class Camera(Component):
     """
     An example of a concrete Component Camera class
@@ -393,8 +391,7 @@ class Camera(Component):
         arg1 = "root2cam"
         if arg1 in kwargs:
             print("Setting: ", arg1," with: \n", kwargs[arg1])
-            self._root2cam = kwargs[arg1]
-       
+            self._root2cam = kwargs[arg1]  
        
     def accept(self, system: pyglGA.ECSS.System, event = None):
         """
@@ -410,18 +407,15 @@ class Camera(Component):
         # due to its type. We need to call a System specific concrete method otherwise)
         system.apply2Camera(self)
     
-    
     def init(self):
         """
         abstract method to be subclassed for extra initialisation
         """
         pass
     
-    
     def __str__(self):
-        return f"\n {self.getClassName()} name: {self._name}, type: {self._type}, id: {self._id}, parent: {self._parent._name}, \n projMat: \n{self.projMat},\n root2cam: \n{self.root2cam}"
-    
-    
+        return f"\n {self.getClassName()} name: {self._name}, type: {self._type}, id: {self._id}, parent: {self._parent._name}, \n projMat: \n{self.projMat},\n root2cam: \n{self.root2cam}"    
+
     def __iter__(self) ->CompNullIterator:
         """ A component does not have children to iterate, thus a NULL iterator
         """
