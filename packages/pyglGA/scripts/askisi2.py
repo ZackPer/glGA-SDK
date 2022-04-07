@@ -11,7 +11,7 @@ pyglGA ECSS package
 
 from __future__         import annotations
 from asyncore import dispatcher
-from math import sin, cos, radians
+from math import sin, cos, radians, pow
 from enum import Enum
 from random import uniform;
 import numpy as np
@@ -162,11 +162,12 @@ class GameObjectEntity(Entity):
         super().__init__(name, type, id);
 
         # Gameobject basic properties
-        self._color          = [1, 1, 1]; # this will be used as a uniform var
+        self._color         = [1, 1, 1]; # this will be used as a uniform var
+        self._vertexCount   = 0;      
         # Create basic components of a primitive object
         self.trans          = BasicTransform(name="trans", trs=util.identity());
         self.mesh           = RenderMesh(name="mesh");
-        self.shaderDec      = ShaderGLDecorator(Shader(vertex_source=Shader.VERT_PHONG_MVP, fragment_source=Shader.FRAG_PHONG));
+        self.shaderDec      = ShaderGLDecorator(Shader(vertex_source=Shader.VERT_PHONG_MVP_ARMATURE, fragment_source=Shader.FRAG_PHONG));
         self.vArray         = VertexArray();
         # Add components to entity
         scene = Scene();
@@ -183,16 +184,57 @@ class GameObjectEntity(Entity):
     def color(self, colorArray):
         self._color = colorArray;
 
+    @property
+    def weights(self):
+        return self._weights;
+
     def drawSelfGui(self, imgui):
         changed, value = imgui.color_edit3("Color", self.color[0], self.color[1], self.color[2]);
         self.color = [value[0], value[1], value[2]];
 
     def SetVertexAttributes(self, vertex, color, index, normals = None):
+        self._vertexCount = len(vertex);
         self.mesh.vertex_attributes.append(vertex);
         self.mesh.vertex_attributes.append(color);
         if normals is not None:
             self.mesh.vertex_attributes.append(normals);
         self.mesh.vertex_index.append(index);
+
+    def SetArmatureParent(self: GameObjectEntity, armature: Armature):
+        Scene().world.addEntityChild(armature, self);
+        
+        # Arrays were they weights will be passed as vertex attributes
+        weightArrays = [];
+        weightArrays.append([]); # Weight 1
+        weightArrays.append([]); # Weight 2
+        weightArrays.append([]); # Weight 3
+        # Initalize the weights matrix;
+        self._weights = [];
+        for i in range(0, self._vertexCount):
+            self._weights.append({});
+        # Calculate weights for each vertex based on the current BasicTransform.
+        for i in range(0, self._vertexCount):
+            temp1 = self.trans.l2world;
+            temp2 = self.mesh.vertex_attributes[0][i];
+            currentVertexPos = temp1 @ temp2;
+            sum = 0;
+            for bone in armature.bones:
+                currentBonePos = bone.trans.l2world[:3,3];
+                weight = 1/pow(util.distance(currentVertexPos, currentBonePos), 2);
+                self._weights[i][bone.name] = weight;
+                sum += weight;
+        
+            # Normalize weights and maybe delete unimpactful bindings.
+            boneNames = self._weights[i].keys();
+            j = 0;
+            for boneName in boneNames:
+                self._weights[i][boneName] /= sum;
+                weightArrays[j].append([self.weights[i][boneName], 0, 0]);
+                j += 1;
+        # Append weight arrays as vertex attributes
+        self.mesh.vertex_attributes.append(weightArrays[0]);
+        self.mesh.vertex_attributes.append(weightArrays[1]);
+        self.mesh.vertex_attributes.append(weightArrays[2]);
 
 class Light(Entity):
     def __init__(self, name=None, type=None, id=None) -> None:
@@ -251,6 +293,7 @@ class SimpleCamera(Entity):
 
         self._mode = "perspective";
         self._camera = scene.world.addComponent(entityCam2, Camera(util.perspective(self._fov, self._aspect, self._near, self._far), "MainCamera", "Camera", "500"));        
+        self.camera
         None;
 
     @property
@@ -414,62 +457,87 @@ class PrimitiveGameObjectSpawner():
     def Spawn(self, type: PrimitiveGameObjectType):
         return self.__dispatcher[type]();
 
+def SpawnRobotArm():
+    scene = Scene();
+    robotArm = scene.world.createEntity(Entity("robotArm"));
+    scene.world.addEntityChild(scene.world.root, robotArm);
+
+    # Add trs to robotArm
+    trans = BasicTransform(name="trans", trs=util.identity());    scene.world.addComponent(robotArm, trans);
+
+    # Create three concecutive cubes
+    cube1: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.CUBE);
+    scene.world.addEntityChild(robotArm, cube1);
+    cube2: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.CUBE);
+    scene.world.addEntityChild(robotArm, cube2);
+    cube3: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.CUBE);
+    scene.world.addEntityChild(robotArm, cube3);
+
+    cube2.trans.trs = util.translate(0, 2.2, 0);
+    cube3.trans.trs = util.translate(0, 4.4, 0);
+
+    return robotArm;
+
+class Bone(Entity):
+    def __init__(self, name=None, type=None, id=None) -> None:
+        super().__init__(name, type, id);
+        # Create basic components of a primitive object
+        self.trans          = BasicTransform(name="trans", trs=util.identity());
+        # Add components to entity
+        scene = Scene();
+        scene.world.createEntity(self);
+        scene.world.addComponent(self, self.trans);
+
+class Armature(Entity):
+    def __init__(self, name=None, type=None, id=None) -> None:
+        super().__init__(name, type, id);
+        
+        # Add variables for armature
+        self._bones = [];
+    
+    @property
+    def bones(self):
+        return self._bones;
+
+    def AddBone(self, x, y, z, parent=None, name=None):
+        bone: Bone = Bone(name);
+
+        bone.trans.trs = util.translate(x, y, z);
+        if parent != None:
+            Scene().world.addEntityChild(parent, bone);
+        elif len(self.bones) > 0:
+            previousBone = self.bones[-1];
+            Scene().world.addEntityChild(previousBone, bone);
+        else: # List of bones is empty
+            Scene().world.addEntityChild(self, bone);
+
+        self.bones.append(bone);
+
+    def drawSelfGui(self, imgui):
+        None;
+
 class RotateAnimation(Entity):
     def __init__(self, name=None, type=None, id=None) -> None:
         super().__init__(name, type, id);
         self._angle = 1;
+        self._maxAngle = 40;
+        self._currentAngle = 0;
         self._target = None;
 
     def SetTarget(self, target: BasicTransform):
         self._target = target;
 
     def Progress(self):
-        self._target.trs = self._target.trs @ util.rotate((0, 1, 0), self._angle);
+        self._target.trs = self._target.trs @ util.rotate((0, 0, 1), self._angle);
+        self._currentAngle += self._angle;
+        if(self._currentAngle > self._maxAngle or self._currentAngle < 0):
+            self._angle *= -1;
 
     def drawSelfGui(self, imgui):
         changed, value = imgui.slider_float("Euler Angle", self._angle, -20, 20, "%.1f", 1);
         self._angle = value;
-    
-
-def SpawnHome():
-    scene = Scene();
-
-    home = scene.world.createEntity(Entity("Home"));
-    scene.world.addEntityChild(scene.world.root, home);
-
-    # Add trs to home
-    trans = BasicTransform(name="trans", trs=util.identity());    scene.world.addComponent(home, trans);
-
-    # Create simple cube
-    cube: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.CUBE);
-    scene.world.addEntityChild(home, cube);
-
-    # Create simple pyramid
-    pyramid: GameObjectEntity = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.PYRAMID);
-    scene.world.addEntityChild(home, pyramid);
-    pyramid.trans.trs = util.translate(0, 1, 0); # Move pyramid to the top of the cube
-
-    return home;
-
 
 def main(imguiFlag = False):
-    ##########################################################
-    # Instantiate a simple complete ECSS with Entities, 
-    # Components, Camera, Shader, VertexArray and RenderMesh
-    #
-    #########################################################
-    """
-    ECSS for this example:
-    
-    root
-        |---------------------------|           
-        entityCam1,                 node4,      
-        |-------|                    |--------------|----------|--------------|           
-        trans1, entityCam2           trans4,        mesh4,     shaderDec4     vArray4
-                |              applyCamera2BasicTransform                 
-                ortho, trans2                   
-                                                            
-    """
     scene = Scene()    
 
     # Initialize Systems used for this script
@@ -492,27 +560,37 @@ def main(imguiFlag = False):
     pointLight.trans.trs = util.translate(0.8, 1, 1)
     scene.world.addEntityChild(rootEntity, pointLight);
 
-    # Spawn homes
-    home1: Entity = SpawnHome();
-    home1.getChild(0).trs = util.translate(0, 0, 0);
-    
-    home2: Entity = SpawnHome();
-    home2.getChild(0).trs = util.translate(2, 0, 2);
+    # Armature  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # Spawn and apply animation to pyramid
-    rotatingPyramid = PrimitiveGameObjectSpawner().Spawn(PrimitiveGameObjectType.PYRAMID);
-    rotatingPyramid.trans.trs = util.translate(-2, 0, -1);
-    scene.world.addEntityChild(rootEntity, rotatingPyramid);
-    rotateAnimation = RotateAnimation("Rotate Animation");
-    rotateAnimation.SetTarget(rotatingPyramid.trans);
-    scene.world.addEntityChild(rotatingPyramid, rotateAnimation);
+    armature = Armature();
+    armature.AddBone(0, 0, 0, name="Bone0");
+    armature.AddBone(0, 1.8, 0, name="Bone1");
+    armature.AddBone(0, 4.1, 0, name="Bone2");
+    scene.world.addEntityChild(rootEntity, armature);
+
+    # Robot Arm ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    robotArm = SpawnRobotArm();
+
+    scene.world.traverse_visit(transUpdate, scene.world.root) # This is required to have world space as origin.
+    
+    robotArm.getChild(1).SetArmatureParent(armature);
+    robotArm.getChild(2).SetArmatureParent(armature);
+    robotArm.getChild(3).SetArmatureParent(armature);
 
     applyUniformTransformList = [];
-    applyUniformTransformList.append(home1.getChild(1));
-    applyUniformTransformList.append(home1.getChild(2));
-    applyUniformTransformList.append(home2.getChild(1));
-    applyUniformTransformList.append(home2.getChild(2));
-    applyUniformTransformList.append(rotatingPyramid);
+
+    riggedUniformTransformList = [];
+    riggedUniformTransformList.append(robotArm.getChild(1));
+    riggedUniformTransformList.append(robotArm.getChild(2));
+    riggedUniformTransformList.append(robotArm.getChild(3));
+
+    # Animation
+    bone1Animation = RotateAnimation("Rotate Animation");
+    bone1Animation.SetTarget(armature.bones[1].trans);
+    scene.world.addEntityChild(armature.bones[1], bone1Animation);
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # Camera settings
     mainCamera.trans2.trs = util.translate(0, 0, 8) # VIEW
@@ -617,8 +695,29 @@ def main(imguiFlag = False):
                 object.shaderDec.setUniformVariable(key='lightColor', value=np.array(pointLight.color), float3=True);
                 object.shaderDec.setUniformVariable(key='lightIntensity', value=pointLight.intensity, float1=True);
 
+        for object in riggedUniformTransformList:
+            if(isinstance(object, GameObjectEntity)):
+                object.shaderDec.setUniformVariable(key='bonePos1', value=armature.bones[0].trans.l2world, mat4=True);
+                object.shaderDec.setUniformVariable(key='bonePos2', value=armature.bones[1].trans.l2world, mat4=True);
+                object.shaderDec.setUniformVariable(key='bonePos3', value=armature.bones[2].trans.l2world, mat4=True);
+                
+                object.shaderDec.setUniformVariable(key='model', value=object.trans.l2world, mat4=True);
+                object.shaderDec.setUniformVariable(key='view', value=mainCamera.camera.root2cam, mat4=True);
+                object.shaderDec.setUniformVariable(key='project', value=mainCamera.camera.projMat, mat4=True);
+
+
+                object.shaderDec.setUniformVariable(key='ambientColor', value=ambientLight.color, float3=True);
+                object.shaderDec.setUniformVariable(key='ambientStr', value=ambientLight.intensity, float1=True);
+                object.shaderDec.setUniformVariable(key='shininess', value=0.5, float1=True);
+                object.shaderDec.setUniformVariable(key='matColor', value=object.color, float3=True);
+
+                object.shaderDec.setUniformVariable(key='viewPos', value=viewPos, float3=True);
+                object.shaderDec.setUniformVariable(key='lightPos', value=lightPos, float3=True);
+                object.shaderDec.setUniformVariable(key='lightColor', value=np.array(pointLight.color), float3=True);
+                object.shaderDec.setUniformVariable(key='lightIntensity', value=pointLight.intensity, float1=True);
+
         # 3.2 progress animations
-        rotateAnimation.Progress();
+        bone1Animation.Progress();
 
         # 4. call SDLWindow/ImGUI display() and ImGUI event input process
         running = scene.render(running)

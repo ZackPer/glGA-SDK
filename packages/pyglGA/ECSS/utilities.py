@@ -78,6 +78,12 @@ def calculateNormals(p1, p2, p3):
 
     return normal;
 
+def distance(point_a, point_b):
+    return math.sqrt(
+        math.pow((point_b[0] - point_a[0]), 2) +
+        math.pow((point_b[1] - point_a[1]), 2) +
+        math.pow((point_b[2] - point_a[2]), 2)
+    );
 
 # ------------ convenience CG functions for vector, matrix and camera transformations --------------
 

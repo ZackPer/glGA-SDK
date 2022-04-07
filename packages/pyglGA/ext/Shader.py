@@ -106,6 +106,7 @@ class Shader(Component):
         in vec4 pos;
         in vec4 color;
         in vec3 normal;
+
         out vec4 outputColor;
 
         // Phong products
@@ -143,7 +144,39 @@ class Shader(Component):
             outputColor = vec4(result, 1);
         }
     """
-    
+    VERT_PHONG_MVP_ARMATURE  = """
+        #version 410
+
+        layout (location=0) in vec4 vPosition;
+        layout (location=1) in vec4 vColor;
+        layout (location=2) in vec4 vNormal;
+        
+        layout (location=3) in vec3 vWeight1;
+        layout (location=4) in vec3 vWeight2;
+        layout (location=5) in vec3 vWeight3;
+
+        out     vec4 pos;
+        out     vec4 color;
+        out     vec3 normal;
+
+        uniform mat4 bonePos1;
+        uniform mat4 bonePos2;
+        uniform mat4 bonePos3;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 project;
+
+        void main()
+        {
+            mat4 weightedModel = (vWeight1.x*bonePos1 + vWeight2.x*bonePos2 + vWeight3.x*bonePos3);
+            gl_Position = project * view * weightedModel * vPosition;
+            pos = weightedModel * vPosition;
+            color = vColor;
+            normal = mat3(transpose(inverse(weightedModel))) * vNormal.xyz;
+        }
+    """
+
     def __init__(self, name=None, type=None, id=None, vertex_source=None, fragment_source=None):
         super().__init__(name, type, id)
         
